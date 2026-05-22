@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+
+# Outputs
+outputs/
+storage/farm_test/
+storage/**/frames/
+storage/**/colmap_sparse/
+storage/**/splat/
+
+# nerfstudio
+*.ckpt
+*.ply
+*.yaml
+*.yml
+wandb/
+
+# macOS
+.DS_Store
+
+# VSCode
+.vscode/
+
+# logs
+*.log

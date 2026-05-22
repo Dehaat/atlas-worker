@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "atlas-phase1"
+version = "0.1.0"
+description = "Atlas Phase 1 Reconstruction Worker"
+requires-python = ">=3.11"
+
+dependencies = [
+    "torch",
+    "torchvision",
+    "nerfstudio",
+    "opencv-python",
+    "numpy",
+    "pillow",
+    "runpod",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["sdk/atlas_sdk"]
