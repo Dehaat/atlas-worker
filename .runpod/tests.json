@@ -1,0 +1,25 @@
+{
+    "tests": [
+      {
+        "name": "office_reconstruction_test",
+  
+        "input": {
+          "input_video_url": "https://tmpfiles.org/dl/wowwekwKgnuR/img_4946.mp4",
+          "scene_type": "office",
+          "max_iterations": 100
+        },
+  
+        "timeout": 7200000
+      }
+    ],
+  
+    "config": {
+      "gpuTypeId": "NVIDIA GeForce RTX 4090",
+  
+      "gpuCount": 1,
+  
+      "allowedCudaVersions": [
+        "12.1"
+      ]
+    }
+  }

@@ -1,0 +1,45 @@
+{
+    "title": "Atlas Worker",
+    "description": "Atlas Phase 1 serverless worker for video-to-Gaussian-splat reconstruction using frame extraction, COLMAP, and Nerfstudio.",
+    "type": "serverless",
+    "category": "image",
+    "iconUrl": "https://raw.githubusercontent.com/runpod/docs/main/static/img/logo.png",
+  
+    "config": {
+      "runsOn": "GPU",
+  
+      "containerDiskInGb": 50,
+  
+      "presets": [
+        {
+          "name": "Office Reconstruction",
+          "defaults": {
+            "SCENE_TYPE": "office",
+            "MAX_ITERATIONS": "1000"
+          }
+        }
+      ],
+  
+      "env": [
+        {
+          "key": "SCENE_TYPE",
+          "input": {
+            "name": "Scene Type",
+            "type": "string",
+            "description": "Scene reconstruction type",
+            "default": "office"
+          }
+        },
+  
+        {
+          "key": "MAX_ITERATIONS",
+          "input": {
+            "name": "Training Iterations",
+            "type": "string",
+            "description": "Maximum Nerfstudio iterations",
+            "default": "1000"
+          }
+        }
+      ]
+    }
+  }
