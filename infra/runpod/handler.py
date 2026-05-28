@@ -161,7 +161,7 @@ async def run_pipeline(job_input: dict):
 def handler(event):
     return asyncio.run(run_pipeline(event["input"]))
 
-
+# RunPod Serverless Entry
 if __name__ == "__main__":
     runpod.serverless.start({
         "handler": handler
