@@ -5,21 +5,42 @@ from __future__ import annotations
 import asyncio
 import urllib.request
 import uuid
-
+import requests
+import zipfile
 from pathlib import Path
-
 import runpod
-
 from schemas.jobs import Job, JobType
-
+from sdk.atlas_sdk.logging import get_logger
 from workers.frame_extraction.src.worker import FrameExtractionWorker
 from workers.colmap.src.worker import ColmapWorker
 from workers.splat.src.worker import SplatWorker
 
+log = get_logger("atlas.runpod.handler")
 
 def download_file(url: str, dst: Path):
     dst.parent.mkdir(parents=True, exist_ok=True)
     urllib.request.urlretrieve(url, dst)
+
+def upload_to_tmpfiles(file_path: Path) -> str:
+
+    with open(file_path, "rb") as f:
+        response = requests.post(
+            "https://tmpfiles.org/api/v1/upload",
+            files={
+                "file": f
+            },
+            timeout=300,
+        )
+
+    response.raise_for_status()
+
+    data = response.json()
+    url = data["data"]["url"]
+    direct_url = url.replace(
+        "https://tmpfiles.org/",
+        "https://tmpfiles.org/dl/"
+    )
+    return direct_url
 
 
 async def run_pipeline(job_input: dict):
@@ -97,7 +118,9 @@ async def run_pipeline(job_input: dict):
         },
         metadata={
             "hyperparameters": {
-                "max_num_iterations": 3000
+                "max_num_iterations": int(
+                    job_input.get("max_iterations", 100)
+                )
             }
         }
     )
@@ -111,10 +134,27 @@ async def run_pipeline(job_input: dict):
             "error": splat_result.error,
         }
 
+    splat_uri = splat_result.outputs["splat"]
+
+    splat_path = Path("storage") / splat_uri.replace("local://", "")
+
+    zip_path = splat_path.parent / "splat.zip"
+
+    log.info(f"Creating zip: {zip_path}")
+
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(splat_path, arcname="splat.ply")
+
+    log.info(f"Uploading zip to tmpfiles: {zip_path}")
+
+    download_url = upload_to_tmpfiles(zip_path)
+
+    log.info(f"Download URL: {download_url}")
+
     return {
         "status": "completed",
         "scene_id": scene_id,
-        "outputs": splat_result.outputs,
+        "download_url": download_url,
     }
 
 
@@ -122,6 +162,7 @@ def handler(event):
     return asyncio.run(run_pipeline(event["input"]))
 
 
-runpod.serverless.start({
-    "handler": handler
-})
+if __name__ == "__main__":
+    runpod.serverless.start({
+        "handler": handler
+    })

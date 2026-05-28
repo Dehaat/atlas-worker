@@ -6,7 +6,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from jobs import Job, JobType
+from schemas.jobs import Job, JobType
 from workers.frame_extraction.src.worker import FrameExtractionWorker
 from workers.colmap.src.worker import ColmapWorker
 from workers.splat.src.worker import SplatWorker

@@ -10,7 +10,7 @@ import traceback
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from jobs import Job, JobResult, JobStatus, JobType
+from schemas.jobs import Job, JobResult, JobStatus, JobType
 
 from .logging import get_logger
 from .storage import StorageClient

@@ -10,16 +10,16 @@ Uses hloc (SuperPoint + SuperGlue) when available, falls back to SIFT.
 """
 
 from __future__ import annotations
-import json
 import os
-import shutil
+import time
 import sqlite3
 import struct
 import subprocess
 from pathlib import Path
-
-from atlas_sdk import BaseWorker, get_logger
-from jobs import Job, JobType
+import platform
+from sdk.atlas_sdk.logging import get_logger
+from sdk.atlas_sdk.base import BaseWorker
+from schemas.jobs import Job, JobType
 
 log = get_logger("atlas.worker.colmap")
 
@@ -39,6 +39,8 @@ MATCHING_STRATEGY: dict[str, str] = {
     "roof":         "sequential",
     "pipeline":     "sequential",
     "default":      "sequential",
+    "office":       "sequential",
+    "indoor":       "sequential",
 }
 
 # Minimum acceptable registration rate per scene type
@@ -46,6 +48,8 @@ MIN_REGISTRATION_RATE: dict[str, float] = {
     "tunnel":  0.70,   # tunnels are hard — accept lower
     "mine":    0.70,
     "default": 0.80,
+    "office": 0.75,
+    "indoor": 0.75,
 }
 
 
@@ -91,7 +95,10 @@ class ColmapWorker(BaseWorker):
             self._run_colmap_sift(frames_dir, db_path, sparse_dir, strategy)
 
         # ── Validate output ───────────────────────────────────────────────────
-        sparse_models = sorted(sparse_dir.iterdir())
+        sparse_models = sorted(
+            p for p in sparse_dir.iterdir()
+            if p.is_dir()
+        )
         if not sparse_models:
             raise RuntimeError(
                 "COLMAP produced no reconstruction. "
@@ -165,7 +172,7 @@ class ColmapWorker(BaseWorker):
 
     def _colmap_threads(self) -> str:
         # COLMAP 4.x on macOS can SIGSEGV with multi-threaded SIFT matching.
-        if os.uname().sysname == "Darwin":
+        if platform.system() == "Darwin":
             return "1"
         return "4"
 
@@ -189,7 +196,7 @@ class ColmapWorker(BaseWorker):
             "--ImageReader.single_camera",  "1",
             "--FeatureExtraction.use_gpu",  "0",
             "--FeatureExtraction.num_threads", n_threads,
-        ], env=env)
+        ], env=env, timeout=3600)
 
         self._run_colmap_matching(db_path, strategy, env, n_threads)
 
@@ -214,7 +221,7 @@ class ColmapWorker(BaseWorker):
             "--FeatureMatching.num_threads", n_threads,
         ]
         # Homebrew COLMAP 4.x on macOS SIGSEGVs in the default SIFT matcher path.
-        if os.uname().sysname == "Darwin":
+        if platform.system() == "Darwin":
             match_base.extend([
                 "--SiftMatching.cpu_brute_force_matcher", "1",
             ])
@@ -238,7 +245,7 @@ class ColmapWorker(BaseWorker):
                     self._run([
                         "colmap", "sequential_matcher",
                         *match_base,
-                        "--SequentialMatching.overlap", "15",
+                        "--SequentialMatching.overlap", "20" if strategy == "sequential" else "15",
                         "--SequentialMatching.loop_detection", "0",
                     ], env=env)
                 return
@@ -308,18 +315,74 @@ class ColmapWorker(BaseWorker):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _run(self, cmd: list[str], env: dict | None = None):
-        result = subprocess.run(
+    def _run(self, cmd: list[str], env: dict | None = None, timeout: int = 7200):
+        """
+        Execute subprocess with:
+        - live log streaming
+        - timeout protection
+        - RunPod-friendly diagnostics
+        """
+
+        merged_env = env or os.environ
+
+        log.info(f"Running command: {' '.join(cmd)}")
+
+        process = subprocess.Popen(
             cmd,
-            capture_output = True,
-            text           = True,
-            env            = env or os.environ,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=merged_env,
         )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Command failed: {' '.join(cmd[:3])}\n"
-                f"stderr: {result.stderr[-2000:]}"  # last 2000 chars
-            )
+
+        output_lines = []
+
+        try:
+            start = time.time()
+
+            while True:
+
+                line = process.stdout.readline()
+
+                if line:
+                    line = line.rstrip()
+
+                    output_lines.append(line)
+
+                    # stream directly into RunPod logs
+                    log.info(line)
+
+                # process completed
+                if process.poll() is not None:
+                    break
+
+                elapsed = time.time() - start
+
+                if elapsed > timeout:
+                    process.kill()
+
+                    raise RuntimeError(
+                        f"Command timed out after {timeout}s\n\n"
+                        f"Command:\n{' '.join(cmd)}"
+                    )
+
+            returncode = process.wait()
+
+            if returncode != 0:
+
+                last_logs = "\n".join(output_lines[-100:])
+
+                raise RuntimeError(
+                    f"Command failed with exit code {returncode}\n\n"
+                    f"Command:\n{' '.join(cmd)}\n\n"
+                    f"Last logs:\n{last_logs}"
+                )
+
+        except Exception:
+            process.kill()
+            raise
 
     def _count_registered(self, images_bin: Path) -> int:
         if not images_bin.exists():

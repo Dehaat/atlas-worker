@@ -41,11 +41,12 @@ RUN pip3 install \
     opencv-python \
     numpy \
     pillow \
-    runpod
+    runpod \
+    requests
 
 # ---------------- env ----------------
 
-ENV PYTHONPATH=/app:/app/sdk:/app/schemas:/app/intelligence/src
+ENV PYTHONPATH=/app:/app/sdk:/app/intelligence/src
 
 # ---------------- startup ----------------
 

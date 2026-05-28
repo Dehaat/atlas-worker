@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from sdk.atlas_sdk import BaseWorker, get_logger
-from jobs import Job, JobType
+from schemas.jobs import Job, JobType
 from intelligence.src.domains.registry import get_plugin
 
 log = get_logger("atlas.worker.splat")
@@ -23,35 +23,35 @@ log = get_logger("atlas.worker.splat")
 # Override via job.metadata["hyperparameters"]
 DEFAULT_HYPERPARAMS: dict[str, dict] = {
     "farm_aerial": {
-        "max_num_iterations":      30000,
+        "max_num_iterations":      1000,
         "densify_grad_threshold":  0.0002,
         "num_downscales":          2,
         "cull_alpha_thresh":       0.005,
         "use_scale_regularization": True,
     },
     "tunnel": {
-        "max_num_iterations":      25000,
+        "max_num_iterations":      1000,
         "densify_grad_threshold":  0.0003,
         "num_downscales":          1,
         "cull_alpha_thresh":       0.005,
         "use_scale_regularization": True,
     },
     "mine": {
-        "max_num_iterations":      25000,
+        "max_num_iterations":      1000,
         "densify_grad_threshold":  0.0003,
         "num_downscales":          1,
         "cull_alpha_thresh":       0.005,
         "use_scale_regularization": True,
     },
     "bridge": {
-        "max_num_iterations":      20000,
+        "max_num_iterations":      1000,
         "densify_grad_threshold":  0.0004,
         "num_downscales":          0,
         "cull_alpha_thresh":       0.01,
         "use_scale_regularization": True,
     },
     "default": {
-        "max_num_iterations":      20000,
+        "max_num_iterations":      1000,
         "densify_grad_threshold":  0.0005,
         "num_downscales":          1,
         "cull_alpha_thresh":       0.005,
@@ -100,12 +100,18 @@ class SplatWorker(BaseWorker):
             "--skip-colmap",
         ])
 
+        # Log ns_data_dir contents after ns-process-data runs
+        log.info(f"NS data dir contents: {list(ns_data_dir.rglob('*'))[:20]}")
+
         transforms_path = ns_data_dir / "transforms.json"
         if not transforms_path.exists():
             raise RuntimeError(
                 "ns-process-data failed to produce transforms.json. "
                 "Check COLMAP sparse model integrity."
             )
+        
+        log.info(f"Generated transforms: {transforms_path}")
+        log.info(f"Transforms exists: {transforms_path.exists()}")
 
         # ── Inject label maps into transforms.json ────────────────────────────
         # nerfstudio's dataloader will pick up label_map_path per frame
@@ -122,7 +128,7 @@ class SplatWorker(BaseWorker):
             ns_data_dir, output_dir, hp, n_classes
         )
         log.info("Starting training...")
-        self._run(train_cmd)
+        self._run(train_cmd, timeout=14400)
 
         training_time = time.time() - t0
         log.info(f"Training complete in {training_time:.0f}s")
@@ -136,7 +142,7 @@ class SplatWorker(BaseWorker):
             "ns-export", "gaussian-splat",
             "--load-config", str(config),
             "--output-dir",  str(export_dir),
-        ])
+        ], timeout=1800)
 
         ply_files = list(export_dir.glob("*.ply"))
         if not ply_files:
@@ -276,13 +282,59 @@ class SplatWorker(BaseWorker):
             pass
         return 0
 
-    def _run(self, cmd: list[str]):
-        log.info(f"Running: {' '.join(cmd[:4])}...")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Command failed: {cmd[0]}\n"
-                f"stderr: {result.stderr[-3000:]}"
-            )
+    def _run(self, cmd: list[str], timeout: int = 7200):
+        """
+        Run subprocess with:
+        - live log streaming
+        - timeout protection
+        - proper error handling
+        """
 
+        log.info(f"Running command: {' '.join(cmd)}")
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+        )
+
+        output_lines = []
+
+        try:
+            start = time.time()
+
+            while True:
+                line = process.stdout.readline()
+
+                if line:
+                    line = line.rstrip()
+                    output_lines.append(line)
+                    log.info(line)
+
+                if process.poll() is not None:
+                    break
+
+                elapsed = time.time() - start
+                if elapsed > timeout:
+                    process.kill()
+                    raise RuntimeError(
+                        f"Command timed out after {timeout}s:\n"
+                        f"{' '.join(cmd)}"
+                    )
+
+            returncode = process.wait()
+
+            if returncode != 0:
+                raise RuntimeError(
+                    f"Command failed with exit code {returncode}\n\n"
+                    f"Last logs:\n"
+                    f"{chr(10).join(output_lines[-100:])}"
+                )
+
+        except Exception:
+            process.kill()
+            raise
 

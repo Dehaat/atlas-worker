@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 
 from sdk.atlas_sdk import BaseWorker, get_logger
-from jobs import Job, JobType
+from schemas.jobs import Job, JobType
 
 log = get_logger("atlas.worker.frame_extraction")
 

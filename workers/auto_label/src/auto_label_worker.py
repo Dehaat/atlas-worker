@@ -19,7 +19,7 @@ from pathlib import Path
 import sys
 
 from sdk import BaseWorker, get_logger
-from jobs import Job, JobType
+from schemas.jobs import Job, JobType
 from intelligence.src.domains.registry import get_plugin
 
 log = get_logger("atlas.worker.auto_label")
