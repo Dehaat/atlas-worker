@@ -1,53 +1,42 @@
-# infra/docker/Dockerfile
-
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# ---------------- system packages ----------------
+WORKDIR /app
+
+ENV PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
     ffmpeg \
     git \
     wget \
     curl \
-    build-essential \
-    cmake \
+    zip \
     libgl1 \
     libglib2.0-0 \
-    colmap \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
-# ---------------- working dir ----------------
+COPY sdk /app/sdk
+COPY schemas /app/schemas
+COPY workers /app/workers
+COPY infra /app/infra
 
-WORKDIR /app
+RUN pip install --upgrade pip
 
-# ---------------- copy repo ----------------
+RUN pip install -e /app/sdk
+RUN pip install -e /app/schemas
 
-COPY . /app
-
-# ---------------- python ----------------
-
-RUN pip3 install --upgrade pip
-
-RUN pip3 install torch torchvision \
-    --index-url https://download.pytorch.org/whl/cu121
-
-RUN pip3 install \
-    nerfstudio \
+RUN pip install \
+    pycolmap \
     opencv-python \
-    numpy \
     pillow \
+    numpy \
     runpod \
     requests
 
-# ---------------- env ----------------
+RUN pip install nerfstudio
 
-ENV PYTHONPATH=/app:/app/sdk:/app/intelligence/src
+RUN python -c "import torch; print(torch.cuda.is_available())"
 
-# ---------------- startup ----------------
-
-CMD ["python3", "infra/runpod/handler.py"]
+CMD ["python3", "/app/infra/runpod/handler.py"]
